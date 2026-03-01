@@ -6,7 +6,7 @@ ZONE="asia-southeast1-c"
 MACHINE_TYPE="e2-medium"
 # Generate a unique instance name using a timestamp
 INSTANCE_NAME="bidding-server-$(date +%s)"
-REPO_URL="https://github.com/ZarliAI/trial-homework.git"
+REPO_URL="https://github.com/jinxicmu/trial-homework.git"
 
 echo "=================================================="
 echo "1. Selecting GCP project..."
@@ -34,8 +34,14 @@ gcloud compute firewall-rules create allow-bidding-server-ports \
     --target-tags=bidding-server \
     || echo "Firewall rule might already exist, continuing..."
 
-echo "Waiting 15 seconds for SSH to become available..."
-sleep 15
+echo "Waiting for SSH to become available..."
+for i in {1..10}; do
+    if gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID --command="true" --quiet; then
+        break
+    fi
+    echo "SSH not ready yet, waiting 10 seconds..."
+    sleep 10
+done
 
 echo "=================================================="
 echo "4. Deploying the GitHub repo via SSH..."
