@@ -268,7 +268,9 @@ open http://localhost:8082
 
 ## One-Command End-to-End Run (A/B/C)
 
-On a clean machine (after installing Docker), this runs the full pipeline and verifies A/B/C:
+On a clean machine (after installing Docker), this runs the full pipeline and verifies A/B/C.
+
+It also performs preflight checks (Docker daemon running, containers up, Redpanda ready, topics exist) to reduce “depends_on but not ready yet” flakiness.
 
 ```bash
 ./scripts/run_end_to_end.sh
@@ -278,6 +280,14 @@ On a clean machine (after installing Docker), this runs the full pipeline and ve
 
 - After running `./scripts/run_end_to_end.sh` on the VM, the dashboard is available at:
   - `http://<VM_EXTERNAL_IP>:8082`
+
+### Verify from your local machine (remote VM)
+
+After you deploy and run the system on the VM, you can validate the remote API + dashboard from your laptop:
+
+```bash
+./scripts/verify_remote.sh <VM_EXTERNAL_IP>
+```
 
 ---
 

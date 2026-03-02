@@ -97,6 +97,15 @@ Latency is dominated by Redis round-trips, so the handler uses `MGET` for breakd
 
 ---
 
+## Verification + Runbook (Deliverable D)
+
+- One-command end-to-end (on the VM itself): `scripts/run_end_to_end.sh`
+  - Preflights Docker, waits for containers, waits for Redpanda readiness, and ensures topics exist before driving >10k HTTP events.
+- Remote verification (from your local machine to the VM): `scripts/verify_remote.sh <VM_EXTERNAL_IP>`
+  - Checks `:8080/healthz` + `:8082/healthz`, validates `/api/metrics`, and emits a small amount of smoke traffic to confirm ingestion updates aggregates.
+
+---
+
 ## Tech Stack Rationale
 
 - **Redpanda (Kafka-compatible)**: event log, scale-out partitions, easy local reproducibility in docker compose.
@@ -117,4 +126,3 @@ Latency is dominated by Redis round-trips, so the handler uses `MGET` for breakd
   - end-to-end idempotency keys
   - consumer group scaling and backpressure controls
 - Improve observability (metrics, tracing) and add automated load tests on the VM.
-
