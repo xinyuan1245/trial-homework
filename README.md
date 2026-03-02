@@ -219,8 +219,8 @@ TARGET_BIDS=13000 TARGET_IMPRESSIONS_FROM_BIDS=12000 UNKNOWN_IMPRESSIONS=800 ./s
 5. Inspect sample records:
 
 ```bash
-docker exec redpanda rpk topic consume bid-requests -n 5 -f '%v\n'
-docker exec redpanda rpk topic consume impressions -n 5 -f '%v\n'
+docker compose exec -T redpanda rpk topic consume bid-requests -n 5 -f '%v\n'
+docker compose exec -T redpanda rpk topic consume impressions -n 5 -f '%v\n'
 ```
 
 This script intentionally injects corner cases:

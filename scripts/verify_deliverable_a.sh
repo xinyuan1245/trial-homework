@@ -12,7 +12,8 @@ set -euo pipefail
 MIN_BIDS="${MIN_BIDS:-10000}"
 MIN_IMPRESSIONS="${MIN_IMPRESSIONS:-10000}"
 
-REDPANDA_CONTAINER="${REDPANDA_CONTAINER:-redpanda}"
+REDPANDA_SERVICE="${REDPANDA_SERVICE:-redpanda}"
+REDPANDA_CONTAINER="${REDPANDA_CONTAINER:-redpanda}" # fallback for older deployments
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -24,13 +25,48 @@ need_cmd() {
 need_cmd docker
 need_cmd awk
 
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+    return
+  fi
+  echo "missing docker compose (need 'docker compose' plugin or 'docker-compose' binary)" >&2
+  exit 1
+}
+
+service_container_id() {
+  local service="$1"
+  compose ps -q "${service}" 2>/dev/null | head -n 1 || true
+}
+
 container_running() {
   local name="$1"
+  local id status
+  id="$(service_container_id "${name}")"
+  if [[ -n "${id}" ]]; then
+    status="$(docker inspect -f '{{.State.Status}}' "${id}" 2>/dev/null || true)"
+    [[ "${status}" == "running" ]]
+    return $?
+  fi
   docker ps --format '{{.Names}}' | awk -v n="${name}" '$0==n{found=1} END{exit found?0:1}'
 }
 
-if ! container_running "${REDPANDA_CONTAINER}"; then
-  echo "container not running: ${REDPANDA_CONTAINER}" >&2
+redpanda_exec() {
+  local id
+  id="$(service_container_id "${REDPANDA_SERVICE}")"
+  if [[ -n "${id}" ]]; then
+    compose exec -T "${REDPANDA_SERVICE}" "$@"
+    return
+  fi
+  docker exec "${REDPANDA_CONTAINER}" "$@"
+}
+
+if ! container_running "${REDPANDA_SERVICE}" && ! container_running "${REDPANDA_CONTAINER}"; then
+  echo "redpanda not running (tried service=${REDPANDA_SERVICE}, container=${REDPANDA_CONTAINER})" >&2
   echo "hint: run 'docker compose up -d --build' first" >&2
   exit 1
 fi
@@ -38,7 +74,7 @@ fi
 topic_hw_sum() {
   local topic="$1"
   local out sum
-  out="$(docker exec "${REDPANDA_CONTAINER}" rpk topic describe -p "${topic}" 2>/dev/null || true)"
+  out="$(redpanda_exec rpk topic describe -p "${topic}" 2>/dev/null || true)"
   if [[ -z "${out}" ]]; then
     echo 0
     return
@@ -80,7 +116,7 @@ fi
 if (( ok == 0 )); then
   echo
   echo "Debug:"
-  echo "docker exec ${REDPANDA_CONTAINER} rpk topic describe bid-requests impressions" >&2
+  echo "docker compose exec -T ${REDPANDA_SERVICE} rpk topic describe bid-requests impressions" >&2
   exit 1
 fi
 

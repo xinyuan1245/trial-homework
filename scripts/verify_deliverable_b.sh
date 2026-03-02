@@ -10,7 +10,8 @@ SLEEP_SEC="${SLEEP_SEC:-2}"
 MIN_BIDS="${MIN_BIDS:-10000}"
 MIN_IMPRESSIONS="${MIN_IMPRESSIONS:-10000}"
 
-REDIS_CONTAINER="${REDIS_CONTAINER:-redis}"
+REDIS_SERVICE="${REDIS_SERVICE:-redis}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-redis}" # fallback for older deployments
 REDIS_CLI_ARGS="${REDIS_CLI_ARGS:-}"
 
 KEY_BIDS="agg:bid_requests"
@@ -28,10 +29,50 @@ need_cmd docker
 need_cmd awk
 need_cmd date
 
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+    return
+  fi
+  echo "missing docker compose (need 'docker compose' plugin or 'docker-compose' binary)" >&2
+  exit 1
+}
+
+service_container_id() {
+  local service="$1"
+  compose ps -q "${service}" 2>/dev/null | head -n 1 || true
+}
+
+container_running() {
+  local name="$1"
+  local id status
+  id="$(service_container_id "${name}")"
+  if [[ -n "${id}" ]]; then
+    status="$(docker inspect -f '{{.State.Status}}' "${id}" 2>/dev/null || true)"
+    [[ "${status}" == "running" ]]
+    return $?
+  fi
+  docker ps --format '{{.Names}}' | awk -v n="${name}" '$0==n{found=1} END{exit found?0:1}'
+}
+
+redis_exec() {
+  local id
+  id="$(service_container_id "${REDIS_SERVICE}")"
+  if [[ -n "${id}" ]]; then
+    compose exec -T "${REDIS_SERVICE}" "$@"
+    return
+  fi
+  docker exec "${REDIS_CONTAINER}" "$@"
+}
+
 redis_get_int() {
   local key="$1"
   local v
-  v="$(docker exec "${REDIS_CONTAINER}" redis-cli ${REDIS_CLI_ARGS} GET "${key}" 2>/dev/null || true)"
+  v="$(redis_exec redis-cli ${REDIS_CLI_ARGS} GET "${key}" 2>/dev/null || true)"
   if [[ -z "${v}" || "${v}" == "(nil)" ]]; then
     echo 0
     return
@@ -44,22 +85,39 @@ redis_get_int() {
   fi
 }
 
-container_running() {
-  local name="$1"
-  docker ps --format '{{.Names}}' | awk -v n="${name}" '$0==n{found=1} END{exit found?0:1}'
-}
-
 echo "Verify Deliverable B (Redis aggregates)"
 echo "timeout=${TIMEOUT_SEC}s min_bids=${MIN_BIDS} min_impressions=${MIN_IMPRESSIONS}"
 echo
 
-for c in "${REDIS_CONTAINER}" redpanda bidsrv ingester-bids ingester-impressions; do
-  if ! container_running "${c}"; then
-    echo "container not running: ${c}" >&2
-    echo "hint: run 'docker compose up -d --build' first" >&2
-    exit 1
-  fi
-done
+if ! container_running "${REDIS_SERVICE}" && ! container_running "${REDIS_CONTAINER}"; then
+  echo "redis not running (tried service=${REDIS_SERVICE}, container=${REDIS_CONTAINER})" >&2
+  echo "hint: run 'docker compose up -d --build' first" >&2
+  exit 1
+fi
+
+if ! container_running redpanda; then
+  echo "container not running: redpanda" >&2
+  echo "hint: run 'docker compose up -d --build' first" >&2
+  exit 1
+fi
+
+if ! container_running ingester-bids; then
+  echo "container not running: ingester-bids" >&2
+  echo "hint: run 'docker compose up -d --build' first" >&2
+  exit 1
+fi
+
+if ! container_running ingester-impressions; then
+  echo "container not running: ingester-impressions" >&2
+  echo "hint: run 'docker compose up -d --build' first" >&2
+  exit 1
+fi
+
+if ! container_running api && ! container_running bidsrv; then
+  echo "bidding server not running (tried service=api, container=bidsrv)" >&2
+  echo "hint: run 'docker compose up -d --build' first" >&2
+  exit 1
+fi
 
 start_ts="$(date +%s)"
 while true; do
@@ -110,11 +168,10 @@ fi
 
 echo
 echo "=== Sample Breakdowns (campaign) ==="
-docker exec "${REDIS_CONTAINER}" redis-cli ${REDIS_CLI_ARGS} --scan --pattern 'agg:campaign:*:bids' 2>/dev/null | head -n 10 | while IFS= read -r k; do
-  v="$(docker exec "${REDIS_CONTAINER}" redis-cli ${REDIS_CLI_ARGS} GET "$k" 2>/dev/null || true)"
+redis_exec redis-cli ${REDIS_CLI_ARGS} --scan --pattern 'agg:campaign:*:bids' 2>/dev/null | head -n 10 | while IFS= read -r k; do
+  v="$(redis_exec redis-cli ${REDIS_CLI_ARGS} GET "$k" 2>/dev/null || true)"
   echo "$k=$v"
 done
 
 echo
 echo "OK: Deliverable B verification complete (check thresholds + numbers above)."
-

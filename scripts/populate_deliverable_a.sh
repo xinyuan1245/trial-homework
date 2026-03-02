@@ -150,8 +150,8 @@ echo "2) duplicate billing for same bid_id"
 echo "3) unmatched impressions via unknown bid_id"
 echo
 echo "If Redpanda is running in docker, verify topic counters with:"
-echo "docker exec redpanda rpk topic describe bid-requests impressions"
+echo "docker compose exec -T redpanda rpk topic describe bid-requests impressions"
 echo
 echo "Sample events:"
-echo "docker exec redpanda rpk topic consume bid-requests -n 3 -f '%v\\n'"
-echo "docker exec redpanda rpk topic consume impressions -n 3 -f '%v\\n'"
+echo "docker compose exec -T redpanda rpk topic consume bid-requests -n 3 -f '%v\\n'"
+echo "docker compose exec -T redpanda rpk topic consume impressions -n 3 -f '%v\\n'"
