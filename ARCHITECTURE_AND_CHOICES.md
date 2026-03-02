@@ -126,3 +126,16 @@ Latency is dominated by Redis round-trips, so the handler uses `MGET` for breakd
   - end-to-end idempotency keys
   - consumer group scaling and backpressure controls
 - Improve observability (metrics, tracing) and add automated load tests on the VM.
+
+
+## Addendum (Personal Notes & Uncertainties)
+
+I reviewed most of the AI-generated code and also validated that the generated scripts run successfully. However, because my understanding of the project domain, Go, and Redpanda is not very deep, I had many questions during implementation. Some configuration and design choices were made by leaning on prior experience and best-effort judgment.
+
+- Why split into two consumer types: with multiple queues/topics, each one has its own responsibilities. This makes it easier to tune concurrency differently per topic based on its workload characteristics and target QPS.
+- Why Redis for storage: Redis is memory-backed and typically faster for reads/writes, which fits a low-latency dashboard use case.
+- Thoughts on extensibility: I considered using another database for the dashboard because I’ve used columnar stores for analytics/dashboarding before. In that approach, Redis can remain the “hot” aggregation/cache layer, while an analytical database provides longer retention and more flexible querying.
+
+Many things felt uncertain while building this: even if the AI produced code that looks like what I wanted, whether it can be reliably used in practice still depends on improving my own understanding of the frameworks, language features, and design tradeoffs involved.
+
+---
