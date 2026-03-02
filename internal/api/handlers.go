@@ -59,12 +59,23 @@ func (h *Handler) HandleBid(w http.ResponseWriter, r *http.Request) {
 	// 2. Generate bid ID
 	bidID := uuid.New().String()
 
+	metadata := idempotency.BidMetadata{
+		CampaignID: camp.ID,
+		UserIDFV:   req.UserIDFV,
+	}
+	if err := h.store.SaveBidMetadata(r.Context(), bidID, metadata); err != nil {
+		log.Printf("error saving bid metadata: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	// 3. Log to Redpanda
 	bidEvent := event.BidEvent{
 		RequestID:   requestID,
 		BidID:       bidID,
 		UserIDFV:    req.UserIDFV,
 		CampaignID:  camp.ID,
+		AppBundle:   req.AppBundle,
 		PlacementID: req.PlacementID,
 		Timestamp:   time.Now().Unix(),
 	}
@@ -118,43 +129,40 @@ func (h *Handler) HandleBilling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Log to Redpanda
-	// Note: We don't have campaignID or userIDFV in the billing request in the strict requirements schema.
-	// But the requirements say "Message must include at minimum: bid_id, campaign_id, user_idfv, timestamp"
-	// Let's assume the strict required params might require us to store these in Redis,
-	// OR the requirements imply we expect the client to send them in "other provided fields".
-	// Since Redis SETNX only stored "1", we can either update LockBilling to store JSON, or just read from Request.
-	// Let's update the event to use what we have, and we'll read user_idfv and campaign_id from request if available.
+	metadata, found, err := h.store.GetBidMetadata(r.Context(), req.BidID)
+	if err != nil {
+		log.Printf("error loading bid metadata: %v", err)
+		if unlockErr := h.store.UnlockBilling(r.Context(), req.BidID); unlockErr != nil {
+			log.Printf("error unlocking billing key after metadata failure: %v", unlockErr)
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
-	// Let's parse additional fields using a map to extract any other fields if provided.
-	// We can decode body twice? No. Let's create an extended request struct locally or just parse to map first.
-	// For simplicity, let's redefine the BillingRequest locally to capture extra fields if needed.
-	// Actually, the requirements mentioned "Input includes at minimum: bid_id, timestamp, other provided fields (if any)"
-	// To safely log campaign_id and user_idfv, we should really retrieve them from Redis at bid time.
-	// Let me check if we need to refine the store.
-	// For now let's just use what we have in the request as string fields.
+	timestamp := req.Timestamp
+	if timestamp <= 0 {
+		timestamp = time.Now().Unix()
+	}
 
-	// Actually let's assume the client sends campaign_id and user_idfv because "other provided fields (if any)"
-	// or we just put empty string if not provided. This is a common pattern when client passes back bid_id and nothing else.
-	// Better yet, I will update LockBilling to store the metadata.
-	// I'll leave this as reading from extended request for now.
-
-	// Let's use a custom struct to parse the full body
-
-	// Re-decoding won't work easily unless we use json.RawMessage.
-
-	// Instead, let's just log what we have. It's safe to include standard fields in the struct.
+	campaignID := "unknown"
+	userIDFV := "unknown"
+	if found {
+		campaignID = metadata.CampaignID
+		userIDFV = metadata.UserIDFV
+	}
 
 	impressionEvent := event.ImpressionEvent{
-		BidID:     req.BidID,
-		Timestamp: time.Now().Unix(),
-		// CampaignID and UserIDFV will be empty unless we extract them. Let's add them to the BillingRequest struct.
+		BidID:      req.BidID,
+		CampaignID: campaignID,
+		UserIDFV:   userIDFV,
+		Timestamp:  timestamp,
 	}
 
 	if err := h.producer.ProduceImpression(r.Context(), impressionEvent); err != nil {
 		log.Printf("error producing impression to kafka: %v", err)
-		// Try to delete the lock so it can be retried?
-		// For a minimal implementation, we might leave it as is.
+		if unlockErr := h.store.UnlockBilling(r.Context(), req.BidID); unlockErr != nil {
+			log.Printf("error unlocking billing key after produce failure: %v", unlockErr)
+		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}

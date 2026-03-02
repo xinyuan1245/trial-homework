@@ -13,6 +13,8 @@ COPY . .
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bidsrv ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o /ingester ./cmd/ingester
+RUN CGO_ENABLED=0 GOOS=linux go build -o /dashboard ./cmd/dashboard
 
 # Final stage
 FROM alpine:latest
@@ -21,6 +23,8 @@ WORKDIR /
 
 # Copy the Pre-built binary file from the previous stage
 COPY --from=builder /bidsrv /bidsrv
+COPY --from=builder /ingester /ingester
+COPY --from=builder /dashboard /dashboard
 
 # Expose port 8080 to the outside world
 EXPOSE 8080

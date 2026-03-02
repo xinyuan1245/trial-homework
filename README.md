@@ -178,8 +178,117 @@ Provide:
 
 * README.md (clear run steps)
 * code/scripts/config required to run on VM
-* dashboard accessible on :8080
+* dashboard accessible on :8082
 * AI_USAGE.md
 * ARCHITECTURE_AND_CHOICES.md
 
 ---
+
+## Local Run Steps (Deliverable A)
+
+1. Start services:
+
+```bash
+docker compose up -d --build
+```
+
+2. Wait for API health check:
+
+```bash
+curl -i http://localhost:8080/healthz
+```
+
+3. Populate Redpanda via HTTP calls (`/v1/bid` + `/v1/billing`):
+
+```bash
+./scripts/populate_deliverable_a.sh http://localhost:8080
+```
+
+Optional tuning (environment variables):
+
+```bash
+TARGET_BIDS=13000 TARGET_IMPRESSIONS_FROM_BIDS=12000 UNKNOWN_IMPRESSIONS=800 ./scripts/populate_deliverable_a.sh
+```
+
+4. Verify both topics contain >10k messages:
+
+```bash
+./scripts/verify_deliverable_a.sh
+```
+
+5. Inspect sample records:
+
+```bash
+docker exec redpanda rpk topic consume bid-requests -n 5 -f '%v\n'
+docker exec redpanda rpk topic consume impressions -n 5 -f '%v\n'
+```
+
+This script intentionally injects corner cases:
+- no-fill bid requests (`user_idfv=789`, expected HTTP 204)
+- duplicate billing calls for the same `bid_id` (idempotency path)
+- unknown/unmatched impressions (billing with synthetic `bid_id`)
+
+---
+
+## Local Run Steps (Deliverables B/C)
+
+After you have produced events (Deliverable A), the ingesters will consume from Redpanda and maintain low-latency aggregates in Redis. The dashboard reads these aggregates.
+
+1. Start services (API + Redpanda + Redis + ingesters + dashboard):
+
+```bash
+docker compose up -d --build
+```
+
+2. Populate events:
+
+```bash
+./scripts/populate_deliverable_a.sh http://localhost:8080
+```
+
+3. Verify Deliverable B aggregates (Redis):
+
+```bash
+./scripts/verify_deliverable_b.sh
+```
+
+4. Verify Deliverable C (dashboard):
+
+```bash
+./scripts/verify_deliverable_c.sh
+```
+
+5. Open dashboard (Deliverable C):
+
+```bash
+open http://localhost:8082
+```
+
+---
+
+## One-Command End-to-End Run (A/B/C)
+
+On a clean machine (after installing Docker), this runs the full pipeline and verifies A/B/C:
+
+```bash
+./scripts/run_end_to_end.sh
+```
+
+### On the provided VM
+
+- After running `./scripts/run_end_to_end.sh` on the VM, the dashboard is available at:
+  - `http://<VM_EXTERNAL_IP>:8082`
+
+---
+
+## Deliverable D (Verification + Architecture & Choices)
+
+1. Required docs:
+   - `AI_USAGE.md`
+   - `ARCHITECTURE_AND_CHOICES.md`
+
+2. Verify Deliverable D artifacts exist:
+
+```bash
+./scripts/verify_deliverable_d.sh
+```

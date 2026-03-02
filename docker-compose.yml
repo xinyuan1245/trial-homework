@@ -35,7 +35,7 @@ services:
     container_name: init-kafka
     depends_on:
       - redpanda
-    entrypoint: [ "sh", "-c", "sleep 5 && rpk topic create bid-requests impressions --brokers redpanda:29092" ]
+    entrypoint: [ "sh", "-c", "sleep 5 && rpk topic create bid-requests impressions --partitions 6 --brokers redpanda:29092" ]
 
   redis:
     image: redis:7-alpine
@@ -57,6 +57,50 @@ services:
       - BASE_URL=http://localhost:8080
     depends_on:
       - init-kafka
+      - redis
+
+  ingester-bids:
+    build: .
+    container_name: ingester-bids
+    command: ["/ingester"]
+    environment:
+      - MODE=bids
+      - TOPIC=bid-requests
+      - GROUP_ID=ingester-bids
+      - DIMENSIONS=campaign_id,placement_id,app_bundle
+      - REDIS_ADDR=redis:6379
+      - KAFKA_BROKERS=redpanda:29092
+    depends_on:
+      - init-kafka
+      - redis
+      - redpanda
+
+  ingester-impressions:
+    build: .
+    container_name: ingester-impressions
+    command: ["/ingester"]
+    environment:
+      - MODE=impressions
+      - TOPIC=impressions
+      - GROUP_ID=ingester-impressions
+      - DIMENSIONS=campaign_id
+      - REDIS_ADDR=redis:6379
+      - KAFKA_BROKERS=redpanda:29092
+    depends_on:
+      - init-kafka
+      - redis
+      - redpanda
+
+  dashboard:
+    build: .
+    container_name: dashboard
+    command: ["/dashboard"]
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - REDIS_ADDR=redis:6379
+    depends_on:
       - redis
 
 volumes:
